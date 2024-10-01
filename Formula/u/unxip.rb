@@ -1,8 +1,8 @@
 class Unxip < Formula
   desc "Fast Xcode unarchiver"
   homepage "https://github.com/saagarjha/unxip"
-  url "https://github.com/saagarjha/unxip/archive/refs/tags/v3.0.tar.gz"
-  sha256 "3e2b841eb06462110a83f90584d7e0c4bcac90de23ccd45d2eba6a29066a7e2d"
+  url "https://github.com/saagarjha/unxip/archive/refs/tags/v3.1.tar.gz"
+  sha256 "d76cabf3c0c057d87fd910ab0de5d9a1108b037f7e7406802f40885d80d49295"
   license "LGPL-3.0-only"
   head "https://github.com/saagarjha/unxip.git", branch: "main"
 
@@ -18,7 +18,7 @@ class Unxip < Formula
 
   depends_on macos: :monterey
 
-  uses_from_macos "swift"
+  uses_from_macos "swift", since: :sonoma
 
   # Uses Compression framework on macOS
   on_linux do
