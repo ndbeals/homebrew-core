@@ -5,7 +5,7 @@ class ClickhouseOdbc < Formula
   url "https://github.com/ClickHouse/clickhouse-odbc/archive/refs/tags/v1.2.1.20220905.tar.gz"
   sha256 "ca8666cbc7af9e5d4670cd05c9515152c34543e4f45e2bc8fa94bee90d724f1b"
   license "Apache-2.0"
-  revision 5
+  revision 6
   head "https://github.com/ClickHouse/clickhouse-odbc.git", branch: "master"
 
   livecheck do
@@ -25,7 +25,7 @@ class ClickhouseOdbc < Formula
   depends_on "cmake" => :build
   depends_on "folly" => :build
   depends_on "pkg-config" => :build
-  depends_on "icu4c@75"
+  depends_on "icu4c@76"
   depends_on "openssl@3"
   depends_on "poco"
 
