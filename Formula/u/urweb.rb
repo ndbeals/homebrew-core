@@ -4,7 +4,7 @@ class Urweb < Formula
   url "https://github.com/urweb/urweb/releases/download/20200209/urweb-20200209.tar.gz"
   sha256 "ac3010c57f8d90f09f49dfcd6b2dc4d5da1cdbb41cbf12cb386e96e93ae30662"
   license "BSD-3-Clause"
-  revision 10
+  revision 11
 
   bottle do
     sha256 arm64_sequoia: "24eca5e9cec9eafae7028751ecbdf91739b752eb85121a8de934953bc691d75d"
@@ -20,7 +20,7 @@ class Urweb < Formula
   depends_on "libtool" => :build
   depends_on "mlton" => :build
   depends_on "gmp"
-  depends_on "icu4c@75"
+  depends_on "icu4c@76"
   depends_on "openssl@3"
 
   # Patch to fix build for icu4c 68.2
