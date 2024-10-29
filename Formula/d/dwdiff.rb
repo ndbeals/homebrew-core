@@ -4,7 +4,7 @@ class Dwdiff < Formula
   url "https://os.ghalkes.nl/dist/dwdiff-2.1.4.tar.bz2"
   sha256 "df16fec44dcb467d65a4246a43628f93741996c1773e930b90c6dde22dd58e0a"
   license "GPL-3.0-only"
-  revision 8
+  revision 9
 
   livecheck do
     url "https://os.ghalkes.nl/dist/"
@@ -22,7 +22,7 @@ class Dwdiff < Formula
 
   depends_on "gettext" => :build
   depends_on "pkg-config" => :build
-  depends_on "icu4c@75"
+  depends_on "icu4c@76"
 
   on_macos do
     depends_on "gettext"
