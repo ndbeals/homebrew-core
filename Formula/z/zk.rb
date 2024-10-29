@@ -4,7 +4,7 @@ class Zk < Formula
   url "https://github.com/zk-org/zk/archive/refs/tags/v0.14.1.tar.gz"
   sha256 "563331e1f5a03b4dd3a4ff642cc205cc7b6c3c350c98f627a3273067e7ec234c"
   license "GPL-3.0-only"
-  revision 1
+  revision 2
   head "https://github.com/zk-org/zk.git", branch: "main"
 
   bottle do
@@ -18,7 +18,7 @@ class Zk < Formula
 
   depends_on "go" => :build
 
-  depends_on "icu4c@75"
+  depends_on "icu4c@76"
   uses_from_macos "sqlite"
 
   def install
