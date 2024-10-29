@@ -4,7 +4,7 @@ class BoostAT185 < Formula
   url "https://github.com/boostorg/boost/releases/download/boost-1.85.0/boost-1.85.0-b2-nodocs.tar.xz"
   sha256 "09f0628bded81d20b0145b30925d7d7492fd99583671586525d5d66d4c28266a"
   license "BSL-1.0"
-  revision 1
+  revision 2
 
   bottle do
     sha256 cellar: :any,                 arm64_sequoia: "89217c11274eb27e508edff118f536746a48342d3f1db378211f5e501220473a"
@@ -17,7 +17,7 @@ class BoostAT185 < Formula
 
   keg_only :versioned_formula
 
-  depends_on "icu4c@75"
+  depends_on "icu4c@76"
   depends_on "xz"
   depends_on "zstd"
 
@@ -35,7 +35,8 @@ class BoostAT185 < Formula
     end
 
     # libdir should be set by --prefix but isn't
-    icu4c = deps.map(&:to_formula).find { |f| f.name.match?(/^icu4c@\d+$/) }
+    icu4c = deps.find { |dep| dep.name.match?(/^icu4c(@\d+)?$/) }
+                .to_formula
     bootstrap_args = %W[
       --prefix=#{prefix}
       --libdir=#{lib}
