@@ -22,6 +22,7 @@ class WasiRuntimes < Formula
   depends_on "cmake" => :build
   depends_on "lld" => [:build, :test]
   depends_on "wasi-libc" => [:build, :test]
+  depends_on "wasm-component-ld" => [:build, :test]
   depends_on "wasmtime" => :test
   depends_on "llvm"
 
@@ -53,6 +54,9 @@ class WasiRuntimes < Formula
       -DCMAKE_C_COMPILER_WORKS=ON
       -DCMAKE_CXX_COMPILER_WORKS=ON
       -DCMAKE_SYSROOT=#{wasi_libc.opt_share}/wasi-sysroot
+      -DCMAKE_FIND_FRAMEWORK=NEVER
+      -DCMAKE_VERBOSE_MAKEFILE=ON
+      -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=#{HOMEBREW_LIBRARY_PATH}/cmake/trap_fetchcontent_provider.cmake
     ]
     # Compiler flags taken from:
     # https://github.com/WebAssembly/wasi-sdk/blob/5e04cd81eb749edb5642537d150ab1ab7aedabe9/cmake/wasi-sdk-sysroot.cmake#L65-L75
@@ -75,7 +79,9 @@ class WasiRuntimes < Formula
     (pkgshare/"lib").install_symlink "wasi" => "wasip1"
     (pkgshare/"lib").install_symlink "wasi" => "wasip2"
 
-    clang_resource_dir = Pathname.new(Utils.safe_popen_read(llvm.opt_bin/"clang", "-print-resource-dir").chomp)
+    clang_resource_dir = Utils.safe_popen_read(llvm.opt_bin/"clang", "-print-resource-dir").chomp
+    clang_resource_dir.sub! llvm.prefix.realpath, llvm.opt_prefix
+    clang_resource_dir = Pathname.new(clang_resource_dir)
     clang_resource_include_dir = clang_resource_dir/"include"
     clang_resource_include_dir.find do |pn|
       next unless pn.file?
@@ -84,7 +90,8 @@ class WasiRuntimes < Formula
       target = pkgshare/relative_path
       next if target.exist?
 
-      target.parent.install_symlink pn
+      target.parent.mkpath
+      ln_s pn, target
     end
 
     target_configuration = Hash.new { |h, k| h[k] = {} }
@@ -93,7 +100,8 @@ class WasiRuntimes < Formula
       # Configuration taken from:
       # https://github.com/WebAssembly/wasi-sdk/blob/5e04cd81eb749edb5642537d150ab1ab7aedabe9/cmake/wasi-sdk-sysroot.cmake#L227-L271
       configuration = target_configuration[target]
-      configuration[:threads] = configuration[:pic] = target.end_with?("-threads") ? "ON" : "OFF"
+      configuration[:threads] = target.end_with?("-threads") ? "ON" : "OFF"
+      configuration[:pic] = target.end_with?("-threads") ? "OFF" : "ON"
       configuration[:flags] = target.end_with?("-threads") ? ["-pthread"] : []
 
       cflags = ENV.cflags&.split || []
@@ -130,7 +138,7 @@ class WasiRuntimes < Formula
         -DLIBCXX_ENABLE_FILESYSTEM:BOOL=ON
         -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT:BOOL=OFF
         -DLIBCXX_CXX_ABI=libcxxabi
-        -DLIBCXX_CXX_ABI_INCLUDE_PATHS=#{testpath}/libcxxabi/include
+        -DLIBCXX_CXX_ABI_INCLUDE_PATHS=#{buildpath}/libcxxabi/include
         -DLIBCXX_HAS_MUSL_LIBC:BOOL=ON
         -DLIBCXX_ABI_VERSION=2
         -DLIBCXXABI_ENABLE_EXCEPTIONS:BOOL=OFF
@@ -189,9 +197,6 @@ class WasiRuntimes < Formula
       -resource-dir=#{HOMEBREW_PREFIX}/share/wasi-runtimes
     ]
     targets.each do |target|
-      # FIXME: Needs a working `wasm-component-ld`.
-      next if target.include?("wasip2")
-
       system clang, "--target=#{target}", *wasm_args, "-v", "test.c", "-o", "test-#{target}"
       assert_equal "the answer is 42", shell_output("wasmtime #{testpath}/test-#{target}")
 
