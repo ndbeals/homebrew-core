@@ -1,8 +1,8 @@
 class WasiRuntimes < Formula
   desc "Compiler-RT and libc++ runtimes for WASI"
   homepage "https://wasi.dev"
-  url "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.2/llvm-project-19.1.2.src.tar.xz"
-  sha256 "3666f01fc52d8a0b0da83e107d74f208f001717824be0b80007f529453aa1e19"
+  url "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.3/llvm-project-19.1.3.src.tar.xz"
+  sha256 "324d483ff0b714c8ce7819a1b679dd9e4706cf91c6caf7336dc4ac0c1d3bf636"
   license "Apache-2.0" => { with: "LLVM-exception" }
   head "https://github.com/llvm/llvm-project.git", branch: "main"
 
@@ -53,6 +53,9 @@ class WasiRuntimes < Formula
       -DCMAKE_C_COMPILER_WORKS=ON
       -DCMAKE_CXX_COMPILER_WORKS=ON
       -DCMAKE_SYSROOT=#{wasi_libc.opt_share}/wasi-sysroot
+      -DCMAKE_FIND_FRAMEWORK=NEVER
+      -DCMAKE_VERBOSE_MAKEFILE=ON
+      -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=#{HOMEBREW_LIBRARY_PATH}/cmake/trap_fetchcontent_provider.cmake
     ]
     # Compiler flags taken from:
     # https://github.com/WebAssembly/wasi-sdk/blob/5e04cd81eb749edb5642537d150ab1ab7aedabe9/cmake/wasi-sdk-sysroot.cmake#L65-L75
@@ -75,7 +78,10 @@ class WasiRuntimes < Formula
     (pkgshare/"lib").install_symlink "wasi" => "wasip1"
     (pkgshare/"lib").install_symlink "wasi" => "wasip2"
 
-    clang_resource_dir = Pathname.new(Utils.safe_popen_read(llvm.opt_bin/"clang", "-print-resource-dir").chomp)
+    clang_resource_dir = Utils.safe_popen_read(llvm.opt_bin/"clang", "-print-resource-dir").chomp
+    clang_resource_dir.sub! llvm.prefix.realpath, llvm.opt_prefix
+    clang_resource_dir = Pathname.new(clang_resource_dir)
+
     clang_resource_include_dir = clang_resource_dir/"include"
     clang_resource_include_dir.find do |pn|
       next unless pn.file?
@@ -84,16 +90,22 @@ class WasiRuntimes < Formula
       target = pkgshare/relative_path
       next if target.exist?
 
-      target.parent.install_symlink pn
+      target.parent.mkpath
+      ln_s pn, target
     end
 
+    # FIXME: the build mistakenly concludes our toolchain doesn't support `-fno-exceptions`
+    #        because we have no `wasm-component-ld`. Remove the line below when
+    #        `wasm-component-ld` is merged.
+    ENV.append_to_cflags "-fno-exceptions"
     target_configuration = Hash.new { |h, k| h[k] = {} }
 
     targets.each do |target|
       # Configuration taken from:
       # https://github.com/WebAssembly/wasi-sdk/blob/5e04cd81eb749edb5642537d150ab1ab7aedabe9/cmake/wasi-sdk-sysroot.cmake#L227-L271
       configuration = target_configuration[target]
-      configuration[:threads] = configuration[:pic] = target.end_with?("-threads") ? "ON" : "OFF"
+      configuration[:threads] = target.end_with?("-threads") ? "ON" : "OFF"
+      configuration[:pic] = target.end_with?("-threads") ? "OFF" : "ON"
       configuration[:flags] = target.end_with?("-threads") ? ["-pthread"] : []
 
       cflags = ENV.cflags&.split || []
@@ -130,7 +142,7 @@ class WasiRuntimes < Formula
         -DLIBCXX_ENABLE_FILESYSTEM:BOOL=ON
         -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT:BOOL=OFF
         -DLIBCXX_CXX_ABI=libcxxabi
-        -DLIBCXX_CXX_ABI_INCLUDE_PATHS=#{testpath}/libcxxabi/include
+        -DLIBCXX_CXX_ABI_INCLUDE_PATHS=#{buildpath}/libcxxabi/include
         -DLIBCXX_HAS_MUSL_LIBC:BOOL=ON
         -DLIBCXX_ABI_VERSION=2
         -DLIBCXXABI_ENABLE_EXCEPTIONS:BOOL=OFF
@@ -157,6 +169,16 @@ class WasiRuntimes < Formula
       system "cmake", "-S", "runtimes", "-B", "runtimes-#{target}", *target_cmake_args, *common_cmake_args
       system "cmake", "--build", "runtimes-#{target}"
       system "cmake", "--install", "runtimes-#{target}"
+
+      (etc/"clang/#{target}-clang").atomic_write <<~CONFIG
+        --sysroot=#{HOMEBREW_PREFIX}/share/wasi-sysroot
+        -resource-dir=#{HOMEBREW_PREFIX}/share/wasi-runtimes
+      CONFIG
+
+      (etc/"clang/#{target}-clang++").atomic_write <<~CONFIG
+        --sysroot=#{HOMEBREW_PREFIX}/share/wasi-sysroot
+        -resource-dir=#{HOMEBREW_PREFIX}/share/wasi-runtimes
+      CONFIG
     end
     (share/"wasi-sysroot/include/c++/v1").mkpath
     touch share/"wasi-sysroot/include/c++/v1/.keepme"
@@ -184,18 +206,14 @@ class WasiRuntimes < Formula
     CPP
 
     clang = Formula["llvm"].opt_bin/"clang"
-    wasm_args = %W[
-      --sysroot=#{HOMEBREW_PREFIX}/share/wasi-sysroot
-      -resource-dir=#{HOMEBREW_PREFIX}/share/wasi-runtimes
-    ]
     targets.each do |target|
       # FIXME: Needs a working `wasm-component-ld`.
       next if target.include?("wasip2")
 
-      system clang, "--target=#{target}", *wasm_args, "-v", "test.c", "-o", "test-#{target}"
+      system clang, "--target=#{target}", "-v", "test.c", "-o", "test-#{target}"
       assert_equal "the answer is 42", shell_output("wasmtime #{testpath}/test-#{target}")
 
-      system "#{clang}++", "--target=#{target}", *wasm_args, "-v", "test.cc", "-o", "test-cxx-#{target}"
+      system "#{clang}++", "--target=#{target}", "-v", "test.cc", "-o", "test-cxx-#{target}"
       assert_equal "hello from C++ main with cout!", shell_output("wasmtime #{testpath}/test-cxx-#{target}").chomp
     end
   end
