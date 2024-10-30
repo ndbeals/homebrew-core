@@ -1,11 +1,22 @@
 class Llvm < Formula
   desc "Next-gen compiler infrastructure"
   homepage "https://llvm.org/"
-  url "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.2/llvm-project-19.1.2.src.tar.xz"
-  sha256 "3666f01fc52d8a0b0da83e107d74f208f001717824be0b80007f529453aa1e19"
   # The LLVM Project is under the Apache License v2.0 with LLVM Exceptions
   license "Apache-2.0" => { with: "LLVM-exception" }
   head "https://github.com/llvm/llvm-project.git", branch: "main"
+
+  stable do
+    url "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.3/llvm-project-19.1.3.src.tar.xz"
+    sha256 "324d483ff0b714c8ce7819a1b679dd9e4706cf91c6caf7336dc4ac0c1d3bf636"
+
+    # Backport relative `CLANG_CONFIG_FILE_SYSTEM_DIR` patch.
+    # Remove in LLVM 20.
+    # https://github.com/llvm/llvm-project/pull/110962
+    patch do
+      url "https://github.com/llvm/llvm-project/commit/1682c99a8877364f1d847395cef501e813804caa.patch?full_index=1"
+      sha256 "2d0a185e27ff2bc46531fc2c18c61ffab521ae8ece2db5b5bed498a15f3f3758"
+    end
+  end
 
   livecheck do
     url :stable
@@ -49,8 +60,37 @@ class Llvm < Formula
   # Fails at building LLDB
   fails_with gcc: "5"
 
+  # Support simplified triples in version config files.
+  # https://github.com/llvm/llvm-project/pull/111387
+  patch do
+    url "https://github.com/llvm/llvm-project/commit/88dd0d33147a7f46a3c9df4aed28ad4e47ef597c.patch?full_index=1"
+    sha256 "0acaa80042055ad194306abb9843a94da24f53ee2bb819583d624391a6329b90"
+  end
+
+  # Fix triple config loading for clang-cl
+  # https://github.com/llvm/llvm-project/pull/111397
+  patch do
+    url "https://github.com/llvm/llvm-project/commit/a3e8b860788934d7cc1489f850f00dcfd9d8b595.patch?full_index=1"
+    sha256 "6d8403fec7be55004e94de90b074c2c166811903ad4921fd76274498c5a60a23"
+  end
+
   def python3
     "python3.13"
+  end
+
+  def clang_config_file_dir
+    etc/"clang"
+  end
+
+  # TODO: Should this be in brew?
+  def macos_kernel_version_map
+    {
+      11 => 20,
+      12 => 21,
+      13 => 22,
+      14 => 23,
+      15 => 24,
+    }
   end
 
   def install
@@ -116,6 +156,8 @@ class Llvm < Formula
       -DLLVM_ENABLE_Z3_SOLVER=#{versioned_formula? ? "OFF" : "ON"}
       -DLLVM_OPTIMIZED_TABLEGEN=ON
       -DLLVM_TARGETS_TO_BUILD=all
+      -DLLVM_USE_RELATIVE_PATHS_IN_FILES=ON
+      -DLLVM_SOURCE_PREFIX=.
       -DLLDB_USE_SYSTEM_DEBUGSERVER=ON
       -DLLDB_ENABLE_PYTHON=ON
       -DLLDB_ENABLE_LUA=OFF
@@ -126,6 +168,8 @@ class Llvm < Formula
       -DCLANG_PYTHON_BINDINGS_VERSIONS=#{python_versions.join(";")}
       -DLLVM_CREATE_XCODE_TOOLCHAIN=OFF
       -DCLANG_FORCE_MATCHING_LIBCLANG_SOVERSION=OFF
+      -DCLANG_CONFIG_FILE_SYSTEM_DIR=#{clang_config_file_dir.relative_path_from(bin)}
+      -DCLANG_CONFIG_FILE_USER_DIR=~/.config/clang
     ]
 
     if tap.present?
@@ -156,7 +200,6 @@ class Llvm < Formula
       args << "-DLIBCXX_INSTALL_LIBRARY_DIR=#{libcxx_install_libdir}"
       args << "-DLIBUNWIND_INSTALL_LIBRARY_DIR=#{libunwind_install_libdir}"
       args << "-DLIBCXXABI_INSTALL_LIBRARY_DIR=#{libcxx_install_libdir}"
-      args << "-DDEFAULT_SYSROOT=#{macos_sdk}" if macos_sdk
       runtimes_cmake_args << "-DCMAKE_INSTALL_RPATH=#{libcxx_rpaths.join("|")}"
 
       # Disable builds for OSes not supported by the CLT SDK.
@@ -412,6 +455,13 @@ class Llvm < Formula
       system "/usr/libexec/PlistBuddy", "-c", "Add:CompatibilityVersion integer 2", "Info.plist"
       xctoolchain.install "Info.plist"
       (xctoolchain/"usr").install_symlink [bin, include, lib, libexec, share]
+
+      # Install a major-versioned symlink that can be used across minor/patch version upgrades.
+      xctoolchain.parent.install_symlink xctoolchain.basename.to_s => "LLVM#{soversion}.xctoolchain"
+
+      macos_kernel_version_map.each do |macos_version, kernel_version|
+        write_config_file(macos_version, kernel_version)
+      end
     end
 
     # Install Vim plugins
@@ -445,8 +495,30 @@ class Llvm < Formula
     end
   end
 
+  def write_config_file(macos_version, kernel_version)
+    # TODO: double-check that these are all needed.
+    drivers = ["clang", "clang++", "clang-cpp"]
+    ["arm64", "x86_64"].each do |arch|
+      drivers.each do |driver|
+        (clang_config_file_dir/"#{arch}-apple-darwin#{kernel_version}-#{driver}.cfg").atomic_write <<~CONFIG
+          --sysroot=#{MacOS::CLT::PKG_PATH}/SDKs/MacOSX#{macos_version}.sdk
+        CONFIG
+      end
+    end
+  end
+
+  def post_install
+    return unless OS.mac?
+    return if macos_kernel_version_map.key?(MacOS.version.major.to_i)
+
+    write_config_file(MacOS.version.major, OS.kernel_version.major)
+  end
+
   def caveats
     s = <<~EOS
+      CLANG_CONFIG_FILE_SYSTEM_DIR: #{clang_config_file_dir}
+      CLANG_CONFIG_FILE_USER_DIR:   ~/.config/clang
+
       LLD is now provided in a separate formula:
         brew install lld
 
